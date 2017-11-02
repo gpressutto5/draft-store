@@ -1,7 +1,9 @@
 package uk.gov.hmcts.reform.draftstore.service;
 
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixCommand;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpClientErrorException;
 import uk.gov.hmcts.reform.draftstore.exception.AuthorizationException;
 import uk.gov.hmcts.reform.draftstore.service.idam.IdamClient;
 import uk.gov.hmcts.reform.draftstore.service.s2s.S2sClient;
@@ -37,6 +39,7 @@ public class AuthService {
         );
     }
 
+    @HystrixCommand(commandKey = "authenticate", ignoreExceptions = HttpClientErrorException.class)
     public UserAndService authenticate(String userHeader, String serviceHeader) {
         return new UserAndService(
             idamClient.getUserDetails(userHeader).id,
