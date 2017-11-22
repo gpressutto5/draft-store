@@ -9,8 +9,6 @@ import org.springframework.jdbc.support.KeyHolder;
 import uk.gov.hmcts.reform.draftstore.data.model.CreateDraft;
 import uk.gov.hmcts.reform.draftstore.data.model.Draft;
 import uk.gov.hmcts.reform.draftstore.data.model.UpdateDraft;
-import uk.gov.hmcts.reform.draftstore.domain.SaveStatus;
-import uk.gov.hmcts.reform.draftstore.exception.NoDraftFoundException;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -18,31 +16,12 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
-import static uk.gov.hmcts.reform.draftstore.domain.SaveStatus.Created;
-import static uk.gov.hmcts.reform.draftstore.domain.SaveStatus.Updated;
 
 @SuppressWarnings("checkstyle:LineLength")
 public class DraftStoreDAO {
-
-    // region queries
-    private static final String INSERT =
-        "INSERT INTO draft_document (user_id, service, document_type, document, created, updated) "
-            + "VALUES (:userId, :service, :type, cast(:document AS JSON), :created, :updated)";
-
-    private static final String UPDATE =
-        "UPDATE draft_document "
-            + "SET document = cast(:document AS JSON), updated = :updated "
-            + "WHERE user_id = :userId "
-            + "AND service = :service "
-            + "AND document_type = :type";
-
-    private static final String DELETE =
-        "DELETE FROM draft_document "
-            + "WHERE user_id = :userId "
-            + "AND document_type = :type";
-    // endregion
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final int defaultMaxStaleDays;
@@ -56,26 +35,6 @@ public class DraftStoreDAO {
         this.jdbcTemplate = jdbcTemplate;
         this.defaultMaxStaleDays = defaultMaxStaleDays;
         this.clock = clock;
-    }
-
-    public SaveStatus insertOrUpdate(String userId, String service, String type, String newDocument) {
-        Timestamp now = Timestamp.from(this.clock.instant());
-        MapSqlParameterSource params =
-            new MapSqlParameterSource()
-                .addValue("userId", userId)
-                .addValue("service", service)
-                .addValue("type", type)
-                .addValue("document", newDocument)
-                .addValue("created", now)
-                .addValue("updated", now);
-
-        int rows = jdbcTemplate.update(UPDATE, params);
-        if (rows == 1) {
-            return Updated;
-        } else {
-            jdbcTemplate.update(INSERT, params);
-            return Created;
-        }
     }
 
     /**
@@ -118,17 +77,6 @@ public class DraftStoreDAO {
         );
     }
 
-    public List<Draft> readAll(String userId, String service, String type) {
-        return jdbcTemplate.query(
-            "SELECT * FROM draft_document WHERE user_id = :userId AND service = :service AND document_type = :type",
-            new MapSqlParameterSource()
-                .addValue("userId", userId)
-                .addValue("service", service)
-                .addValue("type", type),
-            new DraftMapper()
-        );
-    }
-
     public List<Draft> readAll(String userId, String service, Integer after, int limit) {
         return jdbcTemplate.query(
             "SELECT * FROM draft_document "
@@ -160,23 +108,19 @@ public class DraftStoreDAO {
         }
     }
 
-    public void delete(String userId, String type) {
-        int rows =
-            jdbcTemplate.update(
-                DELETE,
-                new MapSqlParameterSource()
-                    .addValue("userId", userId)
-                    .addValue("type", type)
-            );
-        if (rows == 0) {
-            throw new NoDraftFoundException();
-        }
-    }
-
     public void delete(int id) {
         jdbcTemplate.update(
             "DELETE FROM draft_document WHERE id = :id",
             new MapSqlParameterSource("id", id)
+        );
+    }
+
+    public void deleteAll(String userId, String service) {
+        jdbcTemplate.update(
+            "DELETE FROM draft_document WHERE user_id = :userId AND service = :service",
+            new MapSqlParameterSource()
+                .addValue("userId", userId)
+                .addValue("service", service)
         );
     }
 
@@ -185,6 +129,13 @@ public class DraftStoreDAO {
             "DELETE FROM draft_document "
                 + "WHERE updated + interval '1 day' * max_stale_days < :now",
             new MapSqlParameterSource("now", Timestamp.from(this.clock.instant()))
+        );
+    }
+
+    public List<Map<String, Object>> getUnencryptedDrafts() {
+        return jdbcTemplate.queryForList(
+            "SELECT service, created, updated FROM draft_document WHERE encrypted_document IS NULL",
+            new MapSqlParameterSource()
         );
     }
 

@@ -1,10 +1,9 @@
-package uk.gov.hmcts.reform.draftstore.endpoint.v3;
+package uk.gov.hmcts.reform.draftstore.controllers;
 
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiResponse;
 import io.swagger.annotations.ApiResponses;
 import org.hibernate.validator.constraints.Length;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -21,8 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 import uk.gov.hmcts.reform.draftstore.domain.CreateDraft;
 import uk.gov.hmcts.reform.draftstore.domain.Draft;
 import uk.gov.hmcts.reform.draftstore.domain.DraftList;
+import uk.gov.hmcts.reform.draftstore.domain.ErrorResult;
 import uk.gov.hmcts.reform.draftstore.domain.UpdateDraft;
-import uk.gov.hmcts.reform.draftstore.endpoint.domain.ErrorResult;
 import uk.gov.hmcts.reform.draftstore.service.AuthService;
 import uk.gov.hmcts.reform.draftstore.service.DraftService;
 import uk.gov.hmcts.reform.draftstore.service.UserAndService;
@@ -33,6 +32,7 @@ import java.net.URI;
 import javax.validation.Valid;
 
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
+import static org.springframework.http.HttpHeaders.WARNING;
 import static org.springframework.http.ResponseEntity.created;
 import static org.springframework.http.ResponseEntity.noContent;
 import static org.springframework.web.servlet.support.ServletUriComponentsBuilder.fromCurrentRequest;
@@ -44,10 +44,12 @@ import static uk.gov.hmcts.reform.draftstore.service.secrets.Secrets.MIN_SECRET_
 @Validated
 @RequestMapping(
     path = "drafts",
-    produces = MediaType.APPLICATION_JSON_VALUE
+    produces = { DraftController.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE }
 )
 @SuppressWarnings("checkstyle:LineLength")
 public class DraftController {
+
+    static final String MEDIA_TYPE = "application/vnd.uk.gov.hmcts.draft-store.v3+json";
 
     private final AuthService authService;
     private final DraftService draftService;
@@ -93,7 +95,7 @@ public class DraftController {
         return draftService.read(userAndService.withSecrets(secrets), after, limit);
     }
 
-    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(consumes = { MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE })
     @ApiOperation("Create a new draft")
     @ApiResponses({
         @ApiResponse(code = 201, message = "Draft successfully created"),
@@ -112,10 +114,10 @@ public class DraftController {
 
         URI newClaimUri = fromCurrentRequest().path("/{id}").buildAndExpand(id).toUri();
 
-        return created(newClaimUri).build();
+        return withSecretsWarning(secrets, created(newClaimUri));
     }
 
-    @PutMapping(path = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PutMapping(path = "/{id}", consumes = { MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE })
     @ApiOperation("Update existing draft")
     @ApiResponses({
         @ApiResponse(code = 204, message = "Draft updated"),
@@ -134,7 +136,7 @@ public class DraftController {
 
         draftService.update(id, updatedDraft, userAndService.withSecrets(secrets));
 
-        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        return withSecretsWarning(secrets, noContent());
     }
 
     @DeleteMapping(path = "/{id}")
@@ -151,5 +153,30 @@ public class DraftController {
         draftService.delete(id, userAndService);
 
         return noContent().build();
+    }
+
+    @DeleteMapping
+    @ApiOperation("Delete all drafts")
+    @ApiResponses({
+        @ApiResponse(code = 204, message = "Drafts deleted")
+    })
+    public ResponseEntity<Void> deleteAll(
+        @RequestHeader(AUTHORIZATION) String authHeader,
+        @RequestHeader(SERVICE_HEADER) String serviceHeader
+    ) {
+        UserAndService userAndService = authService.authenticate(authHeader, serviceHeader);
+        draftService.deleteAll(userAndService);
+
+        return noContent().build();
+    }
+
+    private static ResponseEntity<Void> withSecretsWarning(
+        Secrets secrets,
+        ResponseEntity.HeadersBuilder<?> respBodyBuilder
+    ) {
+        String msg = "Encryption will be required soon. See https://github.com/hmcts/draft-store#encryption-feature-in-v3";
+        return secrets.primary == null
+            ? respBodyBuilder.header(WARNING, msg).build()
+            : respBodyBuilder.build();
     }
 }

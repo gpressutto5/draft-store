@@ -5,15 +5,16 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.util.ISO8601DateFormat;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.trace.TraceProperties;
+import org.springframework.boot.actuate.trace.TraceRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.validation.beanvalidation.MethodValidationPostProcessor;
 import org.springframework.web.filter.ShallowEtagHeaderFilter;
-import org.springframework.web.servlet.handler.MappedInterceptor;
-import uk.gov.hmcts.reform.api.deprecated.DeprecatedApiInterceptor;
 import uk.gov.hmcts.reform.draftstore.data.DraftStoreDAO;
+import uk.gov.hmcts.reform.draftstore.filters.RequestTraceFilter;
 import uk.gov.hmcts.reform.draftstore.service.idam.IdamClient;
 import uk.gov.hmcts.reform.draftstore.service.idam.IdamClientImpl;
 import uk.gov.hmcts.reform.draftstore.service.idam.IdamClientStub;
@@ -44,17 +45,17 @@ public class DraftStoreConfig {
     }
 
     @Bean
-    public MappedInterceptor deprecatedApiInterceptor() {
-        return new MappedInterceptor(null, new DeprecatedApiInterceptor());
-    }
-
-    @Bean
     public DraftStoreDAO draftDocumentDAO(NamedParameterJdbcTemplate jdbcTemplate) {
         return new DraftStoreDAO(
             jdbcTemplate,
             maxStaleDaysDefault,
             Clock.systemDefaultZone()
         );
+    }
+
+    @Bean
+    public RequestTraceFilter requestTraceFilter(TraceRepository traceRepository, TraceProperties traceProperties) {
+        return new RequestTraceFilter(traceRepository, traceProperties);
     }
 
     @Bean
